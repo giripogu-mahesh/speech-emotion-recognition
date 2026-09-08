@@ -5,7 +5,7 @@ __pycache__/
 .env
 
 Audio_Speech_Actors_01-24_16k/
-models/*.pth
+# models/*.pth
 features/**/*.npz
 features_v2/**/*.npz
 features_v3a/**/*.npz
