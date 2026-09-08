@@ -2,6 +2,17 @@
 
 A speech emotion recognition project using the RAVDESS dataset, MFCC-based acoustic features, and a locally trained PyTorch CNN-BiLSTM model.
 
+## Web Application (Live Demo)
+A user-friendly web interface is available to test the model! 
+You can run it locally using Streamlit, or deploy it directly via Streamlit Community Cloud. 
+
+To run the web UI locally:
+```powershell
+pip install -r requirements.txt
+streamlit run app.py
+```
+This will open a browser window where you can drag and drop an audio file (.wav, .mp3) and instantly see the predicted emotion and confidence score.
+
 ## Supported emotions
 
 The model classifies eight emotions:
