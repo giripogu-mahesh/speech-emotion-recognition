@@ -10,8 +10,8 @@ import torch.nn as nn
 # 1. Configuration and paths
 # ============================================================
 PROJECT_DIR = Path(__file__).resolve().parent.parent
-MODEL_PATH = PROJECT_DIR / "models" / "best_speech_emotion_v2.pth"
-FEATURES_DIR = PROJECT_DIR / "features_v2"
+MODEL_PATH = PROJECT_DIR / "models" / "main_speech_emotion_model.pth"
+FEATURES_DIR = PROJECT_DIR / "features_v3c"
 
 SAMPLE_RATE = 16000
 N_MFCC = 13
@@ -31,55 +31,83 @@ CLASS_NAMES = [
     "surprised"
 ]
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+def select_device():
+    if torch.cuda.is_available():
+        capability = torch.cuda.get_device_capability()
+        architecture = f"sm_{capability[0]}{capability[1]}"
+        if architecture in torch.cuda.get_arch_list():
+            return torch.device("cuda")
+        print(
+            f"CUDA architecture {architecture} is not supported by this "
+            "PyTorch build; using CPU."
+        )
+    return torch.device("cpu")
+
+
+device = select_device()
 
 # ============================================================
 # 2. Architecture definition
 # ============================================================
-class SpeechEmotionCNNBiLSTM(nn.Module):
-    def __init__(self, num_classes=8):
+class TemporalAttention(nn.Module):
+    def __init__(self, hidden_dim):
         super().__init__()
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 1))
-        )
-
-        self.lstm = nn.LSTM(
-            input_size=128 * 4,
-            hidden_size=128,
-            num_layers=2,
-            batch_first=True,
-            bidirectional=True,
-            dropout=0.3
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(128 * 2, num_classes)
+        self.attention = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1)
         )
 
     def forward(self, x):
-        x = self.cnn(x)
-        batch_size, channels, frequency, time = x.shape
-        x = x.permute(0, 3, 1, 2).reshape(
-            batch_size, time, channels * frequency
+        x = x.permute(0, 2, 1)
+        weights = torch.softmax(self.attention(x), dim=1)
+        return torch.sum(x * weights, dim=1)
+
+
+class EmotionCNNAttentiveV3D(nn.Module):
+    def __init__(self, in_channels=45, num_classes=8, dropout=0.35):
+        super().__init__()
+        self.block1 = nn.Sequential(
+            nn.Conv1d(in_channels, 64, kernel_size=5, padding=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Dropout(dropout)
         )
-        x, _ = self.lstm(x)
-        return self.classifier(x[:, -1, :])
+        self.block2 = nn.Sequential(
+            nn.Conv1d(64, 128, kernel_size=5, padding=2),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Dropout(dropout)
+        )
+        self.block3 = nn.Sequential(
+            nn.Conv1d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(dropout + 0.05)
+        )
+        self.attn_pool = TemporalAttention(hidden_dim=256)
+        self.classifier = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.4),
+            nn.Linear(128, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        return self.classifier(self.attn_pool(x))
 
 
 def extract_features(audio_path):
     audio, _ = librosa.load(audio_path, sr=SAMPLE_RATE)
+    audio, _ = librosa.effects.trim(audio, top_db=25)
+    if len(audio) < SAMPLE_RATE // 2:
+        audio = np.pad(audio, (0, SAMPLE_RATE // 2 - len(audio)))
+
     mfcc = librosa.feature.mfcc(
         y=audio,
         sr=SAMPLE_RATE,
@@ -90,7 +118,42 @@ def extract_features(audio_path):
     )
     delta = librosa.feature.delta(mfcc)
     delta2 = librosa.feature.delta(mfcc, order=2)
-    features = np.concatenate([mfcc, delta, delta2], axis=0)
+    rms = librosa.feature.rms(
+        y=audio,
+        frame_length=N_FFT,
+        hop_length=HOP_LENGTH
+    )
+    zcr = librosa.feature.zero_crossing_rate(
+        y=audio,
+        frame_length=N_FFT,
+        hop_length=HOP_LENGTH
+    )
+    centroid = librosa.feature.spectral_centroid(
+        y=audio,
+        sr=SAMPLE_RATE,
+        n_fft=N_FFT,
+        hop_length=HOP_LENGTH
+    )
+    rolloff = librosa.feature.spectral_rolloff(
+        y=audio,
+        sr=SAMPLE_RATE,
+        n_fft=N_FFT,
+        hop_length=HOP_LENGTH
+    )
+    f0, _, voiced_prob = librosa.pyin(
+        audio,
+        fmin=librosa.note_to_hz("C2"),
+        fmax=librosa.note_to_hz("C7"),
+        sr=SAMPLE_RATE,
+        frame_length=N_FFT,
+        hop_length=HOP_LENGTH
+    )
+    f0 = np.nan_to_num(f0, nan=0.0)[None, :]
+    voiced_prob = np.nan_to_num(voiced_prob, nan=0.0)[None, :]
+    features = np.concatenate(
+        [mfcc, delta, delta2, rms, zcr, centroid, rolloff, f0, voiced_prob],
+        axis=0
+    )
 
     if features.shape[1] < MAX_FRAMES:
         features = np.pad(
@@ -103,13 +166,14 @@ def extract_features(audio_path):
 
     mean = np.load(FEATURES_DIR / "mean.npy")
     std = np.load(FEATURES_DIR / "std.npy")
-    return ((features - mean) / max(float(std), 1e-8)).astype(np.float32)
+    normalized = (features - mean) / np.maximum(std, 1e-8)
+    return np.squeeze(normalized, axis=0).astype(np.float32)
 
 # ============================================================
 # 3. Load Model
 # ============================================================
-print("\nLoading locally trained CNN-BiLSTM emotion model...")
-model = SpeechEmotionCNNBiLSTM(num_classes=8).to(device)
+print("\nLoading locally trained V3D emotion model...")
+model = EmotionCNNAttentiveV3D(num_classes=8).to(device)
 model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
 model.eval()
 print("Model ready!\n")
@@ -124,7 +188,7 @@ def predict_emotion(audio_path):
         return
 
     features = extract_features(audio_path)
-    inputs = torch.from_numpy(features).unsqueeze(0).unsqueeze(0).to(device)
+    inputs = torch.from_numpy(features).unsqueeze(0).to(device)
     
     with torch.no_grad():
         logits = model(inputs)

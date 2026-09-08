@@ -157,7 +157,7 @@ def run_epoch(loader, is_train=True):
 
 best_val_acc = 0.0
 patience_counter = 0
-best_model_path = MODELS_DIR / "best_speech_emotion_v3d.pth"
+best_model_path = MODELS_DIR / "main_speech_emotion_model.pth"
 
 print("\nStarting Training V3-D (CNN + Temporal Attention Pooling)...")
 
@@ -194,5 +194,5 @@ print("\nClassification Report:")
 print(classification_report(y_true, y_pred, target_names=CLASS_NAMES, digits=4))
 
 cm = confusion_matrix(y_true, y_pred)
-np.savetxt(RESULTS_DIR / "confusion_matrix_v3d.csv", cm, delimiter=",", fmt="%d")
+np.savetxt(RESULTS_DIR / "confusion_matrix_main.csv", cm, delimiter=",", fmt="%d")
 print("V3-D evaluation complete.")

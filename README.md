@@ -27,37 +27,20 @@ The project does not use Hugging Face or pretrained Wav2Vec2 models.
 
 ## Dataset
 
-This project uses the [RAVDESS](https://zenodo.org/records/1188976) speech audio dataset. Place the extracted dataset in:
-
-```text
-Audio_Speech_Actors_01-24_16k/
-```
-
-The expected structure is:
+The dataset is split by speaker:
 
 ```text
 Audio_Speech_Actors_01-24_16k/
   Actor_01/
-  Actor_02/
   ...
   Actor_24/
 ```
-
-The data is split by speaker:
 
 - Training: actors 1-16
 - Validation: actors 17-20
 - Testing: actors 21-24
 
 The dataset, trained checkpoints, and generated feature arrays are excluded from this repository because of their size. Keep them locally or use Git LFS for private storage.
-
-## Installation
-
-Use Python 3.10 or newer and install the dependencies:
-
-```powershell
-python -m pip install numpy pandas librosa scikit-learn torch soundfile
-```
 
 ## Prepare metadata
 
@@ -67,24 +50,24 @@ python .\src\prepare_dataset.py
 
 ## Build features
 
-The recommended pipeline is version 2, which creates MFCC, delta, and delta-delta features:
+The recommended pipeline is V3D, which creates 45-channel acoustic features:
 
 ```powershell
-python .\src\build_features_v2.py
+python .\src\build_feaatures_v3c.py
 ```
 
-This creates the `features_v2/` files used by the v2 model.
+This creates the `features_v3c/` files used by the V3D model.
 
 ## Train the model
 
 ```powershell
-python .\src\train_model_v2.py
+python .\src\train_model_main.py
 ```
 
 The best checkpoint is saved locally as:
 
 ```text
-models/best_speech_emotion_v2.pth
+models/main_speech_emotion_model.pth
 ```
 
 Evaluation results and the confusion matrix are written to `results/`.
@@ -110,10 +93,10 @@ The script prints the predicted emotion and probabilities for all eight classes.
 ```text
 src/
   prepare_dataset.py
-  build_features_v2.py
-  train_model_v2.py
+  build_feaatures_v3c.py
+  train_model_main.py
   predict.py
-features_v2/       Generated normalized features, kept locally
+features_v3c/       Generated normalized features, kept locally
 models/            Trained checkpoints, kept locally
 results/           Evaluation outputs
 ```

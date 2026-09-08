@@ -85,7 +85,7 @@ for actor_folder in sorted(DATASET_DIR.glob("Actor_*")):
         emotion = emotion_mapping[emotion_code]
 
         records.append({
-            "filepath": str(audio_file),
+            "filepath": str(audio_file.relative_to(PROJECT_DIR)),
             "actor": actor_id,
             "emotion": emotion,
             "emotion_id": emotion_to_id[emotion]
